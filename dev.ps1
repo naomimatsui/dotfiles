@@ -17,6 +17,20 @@ $Root      = Join-Path $env:USERPROFILE 'GitHub'
 $VaultPath = 'G:\マイドライブ\Obsidian Vault'
 $HomeAiPath = Join-Path $VaultPath 'App Ideas\HomeAI Project'
 
+# HomeAI は GitHubリポが出来るまで Obsidianプロジェクト(git操作なし)として扱い、
+# リポが GitHub\ に出来たら自動で git 扱い（pull/push対象）へ切り替える。
+$HomeAiRepoCandidates = @('homeai', 'home-ai', 'HomeAI')
+$HomeAiRepo = $null
+foreach ($c in $HomeAiRepoCandidates) {
+    $cand = Join-Path $Root $c
+    if (Test-Path (Join-Path $cand '.git')) { $HomeAiRepo = $cand; break }
+}
+if ($HomeAiRepo) {
+    $HomeAiEntry = [ordered]@{ Kind = 'git';   Disp = 'HomeAI'; Path = $HomeAiRepo }
+} else {
+    $HomeAiEntry = [ordered]@{ Kind = 'nogit'; Disp = 'HomeAI'; Path = $HomeAiPath }
+}
+
 # フォルダ名 -> 表示名（自動追加リポ用。増えたらここに追記）
 $DisplayNames = @{
     'marinecore'  = 'MARINE CORE'
@@ -87,7 +101,7 @@ function Show-Docs($path) {
 $layout = @(
     [ordered]@{ Kind = 'obsidian'; Disp = 'Obsidian Vault'; Path = $VaultPath }
     [ordered]@{ Kind = 'git';      Disp = 'AKARI';          Folder = 'akari' }
-    [ordered]@{ Kind = 'nogit';    Disp = 'HomeAI';         Path = $HomeAiPath }
+    $HomeAiEntry
     [ordered]@{ Kind = 'git';      Disp = '秒合わせ';        Folder = 'byou-awase' }
     [ordered]@{ Kind = 'git';      Disp = '予算カゴ';        Folder = 'budget-cago' }
     [ordered]@{ Kind = 'git';      Disp = 'MARINE CORE';     Folder = 'marinecore' }
@@ -96,15 +110,16 @@ $layout = @(
 $menu = @()
 foreach ($e in $layout) {
     if ($e.Kind -eq 'git') {
-        $path = Join-Path $Root $e.Folder
+        # Folder指定なら GitHubルート基準、Path指定ならそのまま（HomeAIがリポ化した場合など）
+        $path = if ($e.Contains('Folder') -and $e.Folder) { Join-Path $Root $e.Folder } else { $e.Path }
         $menu += [pscustomobject]@{ Disp = $e.Disp; Path = $path; Kind = 'git'; Exists = (Test-Path (Join-Path $path '.git')) }
     } else {
         $menu += [pscustomobject]@{ Disp = $e.Disp; Path = $e.Path; Kind = $e.Kind; Exists = (Test-Path $e.Path) }
     }
 }
 
-# 既知以外の GitHub リポを自動追加（dotfiles は開発対象外なので除外）
-$knownFolders = @('akari', 'byou-awase', 'budget-cago', 'marinecore')
+# 既知以外の GitHub リポを自動追加（dotfiles は開発対象外・HomeAI候補は二重表示防止で除外）
+$knownFolders = @('akari', 'byou-awase', 'budget-cago', 'marinecore') + $HomeAiRepoCandidates
 $extra = Get-ChildItem -Path $Root -Directory -ErrorAction SilentlyContinue |
     Where-Object { (Test-Path (Join-Path $_.FullName '.git')) -and $_.Name -ne 'dotfiles' -and ($knownFolders -notcontains $_.Name) } |
     Sort-Object Name
@@ -122,7 +137,7 @@ for ($i = 0; $i -lt $menu.Count; $i++) {
     $m = $menu[$i]
     $tag = ''
     if     ($m.Kind -eq 'obsidian') { $tag = '  [Obsidian / git無]' }
-    elseif ($m.Kind -eq 'nogit')    { $tag = '  [企画 / git無]' }
+    elseif ($m.Kind -eq 'nogit')    { $tag = '  [Obsidianプロジェクト / git無]' }
     if (-not $m.Exists) {
         if ($m.Kind -eq 'git') { $tag = '  [リポジトリ未作成]' } else { $tag = '  [見つかりません]' }
     }
@@ -179,7 +194,8 @@ if ($proj.Kind -eq 'nogit') {
     }
     Set-Location $proj.Path
     Write-Host ""
-    Write-Host ("   {0}：企画フォルダを開きます（GitHubリポは未作成 / git操作なし）" -f $proj.Disp) -ForegroundColor Green
+    Write-Host ("   {0}：Obsidianプロジェクトとして開きます（GitHubリポ未作成 / git操作なし）" -f $proj.Disp) -ForegroundColor Green
+    Write-Host "   ※ GitHub\ にリポができたら、次回から自動でgit(pull/push)対象になります。" -ForegroundColor DarkGray
     Write-Host ("   場所: {0}" -f $proj.Path) -ForegroundColor DarkGray
     Show-Docs $proj.Path
     Write-Host ""
