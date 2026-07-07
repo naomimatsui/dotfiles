@@ -58,3 +58,55 @@ dev
 - [ ] GitHub 通知 / Issues / PR 表示
 - [ ] GitHub Pages URL 表示
 - [ ] `npm run dev` / localhost 自動起動 / ブラウザ自動起動
+
+---
+
+## 家PC・会社PCでの使い方
+家でも会社でも操作は完全に同じ。コードは常に `C:\Users\<user>\GitHub` 配下で扱う。
+
+### 毎日の開始手順
+1. 新しい PowerShell / Windows Terminal を開く
+2. `dev` と入力
+3. プロジェクトを番号で選択
+4. `git status` を確認
+5. 「最新を取得しますか？ [Y/N]」→ **基本は Y**（他PCの変更を取り込む）
+6. TODO を確認 → Claude Code 起動 → 作業開始
+
+### 毎日の終了手順
+1. `git status` で変更確認
+2. `git add -A`
+3. `git commit -m "作業内容"`
+4. `git push` （他PCに反映される）
+
+> 「開始で pull・終了で push」を徹底すれば、家と会社で常に同じ状態を保てる。
+
+## 新しいPCでの再現手順
+```powershell
+# 1) dotfiles を clone
+git clone https://github.com/naomimatsui/dotfiles.git "$env:USERPROFILE\GitHub\dotfiles"
+
+# 2) セットアップ（PATH登録・主要リポ clone・git config）
+& "$env:USERPROFILE\GitHub\dotfiles\install.ps1"
+
+# 3) 新しい PowerShell を開いて
+dev
+```
+
+## PowerShell 実行ポリシーが必要な場合
+`dev.ps1` がブロックされる場合、**CurrentUser のみ** `RemoteSigned` にする（管理者不要・システム全体は変更しない）:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+確認:
+```powershell
+Get-ExecutionPolicy -List   # CurrentUser が RemoteSigned ならOK
+```
+
+## 保存場所のルール（重要）
+| 用途 | 場所 | 同期 | Git |
+|---|---|---|---|
+| Obsidian（アイデア・営業資料・メモ） | `G:\マイドライブ\Obsidian Vault` | Google Drive | ❌ しない |
+| コード（アプリ開発） | `C:\Users\<user>\GitHub` | GitHub | ✅ する |
+
+- **Google Drive は Obsidian 専用。GitHub はコード専用。**
+- Google Drive 内では絶対に Git 管理しない（同期競合で `.git` 破損の恐れ）。
