@@ -112,4 +112,28 @@ Write-Host ""
 # ---- Claude Code 起動 ----
 Write-Host "   Claude Code を起動します..." -ForegroundColor Cyan
 Write-Host ""
-claude
+
+# claude.exe を動的に解決（Windows Store版・通常版 両対応）
+# ① Windows Store版: LocalAppData\Packages\Claude_*\LocalCache\Roaming\Claude\claude-code
+$claudeCodeDir = $null
+$storePackage = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Packages") -Directory -Filter "Claude_*" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($storePackage) {
+    $candidate = Join-Path $storePackage.FullName "LocalCache\Roaming\Claude\claude-code"
+    if (Test-Path $candidate) { $claudeCodeDir = $candidate }
+}
+# ② 通常版: %APPDATA%\Claude\claude-code
+if (-not $claudeCodeDir) {
+    $candidate = Join-Path $env:APPDATA "Claude\claude-code"
+    if (Test-Path $candidate) { $claudeCodeDir = $candidate }
+}
+if (-not $claudeCodeDir) {
+    Write-Host "   claude.exe が見つかりません。Claude Desktop がインストールされているか確認してください。" -ForegroundColor Red
+    return
+}
+$latestVersion = Get-ChildItem $claudeCodeDir -Directory | Sort-Object Name | Select-Object -Last 1
+if (-not $latestVersion) {
+    Write-Host "   claude.exe のバージョンフォルダが見つかりません: $claudeCodeDir" -ForegroundColor Red
+    return
+}
+$claudeExe = Join-Path $latestVersion.FullName "claude.exe"
+& $claudeExe
