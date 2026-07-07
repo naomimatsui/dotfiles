@@ -94,6 +94,27 @@ function Show-Docs($path) {
     }
 }
 
+# --- Obsidian でノートを開く（vault名+file の obsidian:// URI。失敗時は既定アプリで開く） ---
+function Open-VaultNote($vaultRoot, $rel) {
+    $full = Join-Path $vaultRoot $rel
+    if (-not (Test-Path $full)) {
+        Write-Host ("   スキップ（無し）: {0}" -f $rel) -ForegroundColor DarkGray
+        return
+    }
+    $vaultName = Split-Path $vaultRoot -Leaf
+    $uri = "obsidian://open?vault=$([uri]::EscapeDataString($vaultName))&file=$([uri]::EscapeDataString($rel))"
+    try {
+        Start-Process $uri -ErrorAction Stop | Out-Null
+    } catch {
+        try { Invoke-Item -LiteralPath $full -ErrorAction Stop } catch {
+            Write-Host ("   開けませんでした: {0}" -f $rel) -ForegroundColor DarkGray
+            return
+        }
+    }
+    Write-Host ("   開きました: {0}" -f $rel) -ForegroundColor Gray
+    Start-Sleep -Milliseconds 500   # Obsidianが順番にタブを開くための小休止
+}
+
 # =====================================================================
 #  メニュー構築：Obsidian Vault を先頭に、既知プロジェクトを希望順、
 #  未知の GitHub リポは末尾に自動追加。
@@ -177,6 +198,14 @@ if ($proj.Kind -eq 'obsidian') {
     }
     Write-Host ""
     Write-Host "   ※ Obsidian Vault は git操作なし（Google Drive同期に任せる）" -ForegroundColor DarkGray
+
+    # 起動時に運用ファイルを順番にObsidianで開く（家・会社とも同じ動作）
+    Write-Host ""
+    Write-Host "   運用ファイルを順番に開きます（PROJECTS → TODAY → WORKLOG）..." -ForegroundColor Cyan
+    foreach ($rel in @('PROJECTS.md', 'TODAY.md', 'WORKLOG.md')) {
+        Open-VaultNote $proj.Path $rel
+    }
+
     Write-Host ""
     [void](Start-Claude)
     # 終了後も git 操作はしない
