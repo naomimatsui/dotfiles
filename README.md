@@ -20,17 +20,48 @@
 | `claude/CLAUDE.md` | 全プロジェクト共通のグローバル指示 |
 | `templates/TODO.md` | 各プロジェクトに置く TODO 雛形 |
 
-## `dev` の動作
+## `dev` の動作（dev 2.0）
+
+Obsidian を普段使いの中心にしつつ、**アプリ開発をした日だけ GitHub 同期**できるランチャー。
+
 ```
 dev
- ↓ GitHub フォルダ内のリポジトリを自動一覧表示
+ ↓ プロジェクト一覧を表示
+    1) Obsidian Vault   [git無]
+    2) AKARI
+    3) HomeAI           [企画 / git無]
+    4) 秒合わせ
+    5) 予算カゴ
+    6) MARINE CORE
  ↓ 番号を入力
- ↓ git status 表示（Branch / 未コミット / 未Push / 同期状態）
- ↓ 「最新を取得しますか？ [Y/N]」→ Y なら git pull --ff-only
- ↓ TODO.md または README.md を表示
- ↓ Claude Code 起動
 ```
-プロジェクトが増えても自動で一覧化される。表示名は `dev.ps1` の `$DisplayNames` で管理。
+
+### Obsidian Vault を選んだ場合（git操作なし）
+```
+ → G:\マイドライブ\Obsidian Vault へ移動
+ → 重要ファイル確認（🏠 HOME.md / PROJECTS.md / TODAY.md / _system\INDEX.md を ✓/✗ 表示）
+ → Claude Code 起動
+ → 終了後も git 操作なし（Google Drive 同期に任せる）
+```
+
+### GitHubプロジェクトを選んだ場合
+```
+ → 対象フォルダへ移動
+ → git status 表示（Branch / 未コミット / 未Push / 同期状態）
+ → git fetch でリモート差分を確認
+ → 【更新がある時だけ】「最新を取得しますか？ [Y/N]」→ Y なら git pull --ff-only
+ → README.md / TODO.md / CHANGELOG.md があれば表示
+ → Claude Code 起動
+ ─ 終了後 ─
+ → git status を再確認
+ → 【変更がある時だけ】「GitHubへ保存しますか？ [Y/N]」
+     → Y なら: git add -A → コミットメッセージ入力 → git commit → git push
+     → 変更が無ければ何もしない
+```
+
+- **HomeAI** は現状 GitHub リポ未作成のため、選ぶと企画フォルダ `App Ideas/HomeAI Project/`（Google Drive内）を git操作なしで開く。リポができたら自動で git 扱いに移行。
+- GitHub リポが増えても自動で一覧化される。並び順・表示名は `dev.ps1` の `$layout` / `$DisplayNames` で管理。
+- Claude 起動は **PATH → Windows Store版 → 通常版** の順で自動解決（家PC・会社PC / Store版・通常版の両対応）。
 
 ## 新しいPCでのセットアップ（3ステップ）
 ```powershell

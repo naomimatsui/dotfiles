@@ -1,66 +1,207 @@
 ﻿# =====================================================================
-#  dev.ps1  —  Claude Code プロジェクトランチャー
+#  dev.ps1  —  Claude Code プロジェクトランチャー  (dev 2.0)
 #  使い方: PowerShell で  dev  と入力
+#
+#  方針:
+#   - Obsidian Vault は「普段使いの中心」。git操作は一切しない（Google Drive同期）。
+#   - GitHubプロジェクトを選んだ日だけ、開始時pull・終了時push（どちらも確認付き）。
+#   - 固定パス(adoni等)は使わない。GitHubルート=$env:USERPROFILE\GitHub。
+#   - Claude起動は Store版 / 通常版 / PATH の3段フォールバック（家PC・会社PC対応）。
 # =====================================================================
 
-# 日本語表示のため出力を UTF-8 に
+# 日本語表示のため入出力を UTF-8 に
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$Root = Join-Path $env:USERPROFILE 'GitHub'
+$Root      = Join-Path $env:USERPROFILE 'GitHub'
+$VaultPath = 'G:\マイドライブ\Obsidian Vault'
+$HomeAiPath = Join-Path $VaultPath 'App Ideas\HomeAI Project'
 
-# フォルダ名 -> 表示名 のマッピング（増えたらここに追記）
+# フォルダ名 -> 表示名（自動追加リポ用。増えたらここに追記）
 $DisplayNames = @{
     'marinecore'  = 'MARINE CORE'
     'akari'       = 'AKARI'
     'byou-awase'  = '秒合わせ'
     'budget-cago' = '予算カゴ'
-    'HomeAI'      = 'HomeAI'
     'butudan-app' = '仏壇アプリ'
 }
-
 function Get-Disp($name) {
     if ($DisplayNames.ContainsKey($name)) { return $DisplayNames[$name] }
     return $name
 }
 
-# .git を持つフォルダを自動一覧化（dotfiles は開発対象外なので除外）
-$projects = Get-ChildItem -Path $Root -Directory -ErrorAction SilentlyContinue |
-    Where-Object { (Test-Path (Join-Path $_.FullName '.git')) -and $_.Name -ne 'dotfiles' } |
-    Sort-Object Name
+# --- claude.exe を動的に解決（PATH → Store版 → 通常版） ---
+function Resolve-ClaudeExe {
+    # ① PATH上の claude（npm版・シム等）
+    $cmd = Get-Command claude -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) { return $cmd.Source }
 
-if (-not $projects -or $projects.Count -eq 0) {
-    Write-Host "`nプロジェクトが見つかりません: $Root" -ForegroundColor Yellow
-    return
+    # ② Windows Store版: LocalAppData\Packages\Claude_*\LocalCache\Roaming\Claude\claude-code
+    $storePackage = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages') -Directory -Filter 'Claude_*' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($storePackage) {
+        $dir = Join-Path $storePackage.FullName 'LocalCache\Roaming\Claude\claude-code'
+        if (Test-Path $dir) {
+            $v = Get-ChildItem $dir -Directory -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+            if ($v) { $exe = Join-Path $v.FullName 'claude.exe'; if (Test-Path $exe) { return $exe } }
+        }
+    }
+
+    # ③ 通常版: %APPDATA%\Claude\claude-code
+    $dir = Join-Path $env:APPDATA 'Claude\claude-code'
+    if (Test-Path $dir) {
+        $v = Get-ChildItem $dir -Directory -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+        if ($v) { $exe = Join-Path $v.FullName 'claude.exe'; if (Test-Path $exe) { return $exe } }
+    }
+    return $null
 }
 
-# ---- プロジェクト一覧 ----
+function Start-Claude {
+    $exe = Resolve-ClaudeExe
+    if (-not $exe) {
+        Write-Host "   claude が見つかりません（Store版/通常版/PATHいずれも）。" -ForegroundColor Red
+        Write-Host "   Claude Desktop のインストール、または 'claude' が PATH にあるか確認してください。" -ForegroundColor Red
+        return $false
+    }
+    Write-Host "   Claude Code を起動します..." -ForegroundColor Cyan
+    Write-Host ""
+    & $exe            # claude 終了までブロック
+    return $true
+}
+
+# --- あれば表示するドキュメント ---
+function Show-Docs($path) {
+    foreach ($f in @('README.md', 'TODO.md', 'CHANGELOG.md')) {
+        $p = Join-Path $path $f
+        if (Test-Path $p) {
+            Write-Host ""
+            Write-Host ("----- {0} -----" -f $f) -ForegroundColor Magenta
+            Get-Content -Path $p -Encoding UTF8 | ForEach-Object { Write-Host "   $_" }
+        }
+    }
+}
+
+# =====================================================================
+#  メニュー構築：Obsidian Vault を先頭に、既知プロジェクトを希望順、
+#  未知の GitHub リポは末尾に自動追加。
+# =====================================================================
+$layout = @(
+    [ordered]@{ Kind = 'obsidian'; Disp = 'Obsidian Vault'; Path = $VaultPath }
+    [ordered]@{ Kind = 'git';      Disp = 'AKARI';          Folder = 'akari' }
+    [ordered]@{ Kind = 'nogit';    Disp = 'HomeAI';         Path = $HomeAiPath }
+    [ordered]@{ Kind = 'git';      Disp = '秒合わせ';        Folder = 'byou-awase' }
+    [ordered]@{ Kind = 'git';      Disp = '予算カゴ';        Folder = 'budget-cago' }
+    [ordered]@{ Kind = 'git';      Disp = 'MARINE CORE';     Folder = 'marinecore' }
+)
+
+$menu = @()
+foreach ($e in $layout) {
+    if ($e.Kind -eq 'git') {
+        $path = Join-Path $Root $e.Folder
+        $menu += [pscustomobject]@{ Disp = $e.Disp; Path = $path; Kind = 'git'; Exists = (Test-Path (Join-Path $path '.git')) }
+    } else {
+        $menu += [pscustomobject]@{ Disp = $e.Disp; Path = $e.Path; Kind = $e.Kind; Exists = (Test-Path $e.Path) }
+    }
+}
+
+# 既知以外の GitHub リポを自動追加（dotfiles は開発対象外なので除外）
+$knownFolders = @('akari', 'byou-awase', 'budget-cago', 'marinecore')
+$extra = Get-ChildItem -Path $Root -Directory -ErrorAction SilentlyContinue |
+    Where-Object { (Test-Path (Join-Path $_.FullName '.git')) -and $_.Name -ne 'dotfiles' -and ($knownFolders -notcontains $_.Name) } |
+    Sort-Object Name
+foreach ($x in $extra) {
+    $menu += [pscustomobject]@{ Disp = (Get-Disp $x.Name); Path = $x.FullName; Kind = 'git'; Exists = $true }
+}
+
+# ---- 一覧表示 ----
 Write-Host ""
 Write-Host "===================================" -ForegroundColor Cyan
 Write-Host "   Claude Code  プロジェクト選択" -ForegroundColor Cyan
 Write-Host "===================================" -ForegroundColor Cyan
 Write-Host ""
-for ($i = 0; $i -lt $projects.Count; $i++) {
-    Write-Host ("   {0})  {1}" -f ($i + 1), (Get-Disp $projects[$i].Name))
+for ($i = 0; $i -lt $menu.Count; $i++) {
+    $m = $menu[$i]
+    $tag = ''
+    if     ($m.Kind -eq 'obsidian') { $tag = '  [Obsidian / git無]' }
+    elseif ($m.Kind -eq 'nogit')    { $tag = '  [企画 / git無]' }
+    if (-not $m.Exists) {
+        if ($m.Kind -eq 'git') { $tag = '  [リポジトリ未作成]' } else { $tag = '  [見つかりません]' }
+    }
+    Write-Host ("   {0})  {1}{2}" -f ($i + 1), $m.Disp, $tag)
 }
 Write-Host ""
 
 $sel = Read-Host "   番号を入力 (q=中止)"
 if ($sel -eq 'q' -or [string]::IsNullOrWhiteSpace($sel)) { return }
 $idx = ($sel -as [int]) - 1
-if ($null -eq ($sel -as [int]) -or $idx -lt 0 -or $idx -ge $projects.Count) {
+if ($null -eq ($sel -as [int]) -or $idx -lt 0 -or $idx -ge $menu.Count) {
     Write-Host "   無効な番号です。" -ForegroundColor Red
     return
 }
+$proj = $menu[$idx]
 
-$proj = $projects[$idx]
-$disp = Get-Disp $proj.Name
-Set-Location $proj.FullName
+# =====================================================================
+#  分岐A：Obsidian Vault（git操作なし）
+# =====================================================================
+if ($proj.Kind -eq 'obsidian') {
+    if (-not (Test-Path $proj.Path)) {
+        Write-Host ""
+        Write-Host ("   Obsidian Vault が見つかりません: {0}" -f $proj.Path) -ForegroundColor Red
+        Write-Host "   Google Drive がマウントされているか確認してください。" -ForegroundColor Red
+        return
+    }
+    Set-Location $proj.Path
+    Write-Host ""
+    Write-Host "===================================" -ForegroundColor Green
+    Write-Host "   Obsidian Vault   重要ファイル確認" -ForegroundColor Green
+    Write-Host "===================================" -ForegroundColor Green
+    foreach ($f in @('🏠 HOME.md', 'PROJECTS.md', 'TODAY.md', '_system\INDEX.md')) {
+        $ok = Test-Path (Join-Path $proj.Path $f)
+        $mark = if ($ok) { '✓' } else { '✗' }
+        $col  = if ($ok) { 'Gray' } else { 'Yellow' }
+        Write-Host ("   {0}  {1}" -f $mark, $f) -ForegroundColor $col
+    }
+    Write-Host ""
+    Write-Host "   ※ Obsidian Vault は git操作なし（Google Drive同期に任せる）" -ForegroundColor DarkGray
+    Write-Host ""
+    [void](Start-Claude)
+    # 終了後も git 操作はしない
+    return
+}
+
+# =====================================================================
+#  分岐 HomeAI：企画フォルダを開くだけ（git操作なし）
+# =====================================================================
+if ($proj.Kind -eq 'nogit') {
+    if (-not (Test-Path $proj.Path)) {
+        Write-Host ""
+        Write-Host ("   企画フォルダが見つかりません: {0}" -f $proj.Path) -ForegroundColor Red
+        return
+    }
+    Set-Location $proj.Path
+    Write-Host ""
+    Write-Host ("   {0}：企画フォルダを開きます（GitHubリポは未作成 / git操作なし）" -f $proj.Disp) -ForegroundColor Green
+    Write-Host ("   場所: {0}" -f $proj.Path) -ForegroundColor DarkGray
+    Show-Docs $proj.Path
+    Write-Host ""
+    [void](Start-Claude)
+    return
+}
+
+# =====================================================================
+#  分岐B：GitHubプロジェクト
+# =====================================================================
+if (-not $proj.Exists) {
+    Write-Host ""
+    Write-Host ("   {0} のリポジトリがまだありません: {1}" -f $proj.Disp, $proj.Path) -ForegroundColor Yellow
+    Write-Host "   先に git clone / init してから使ってください。" -ForegroundColor Yellow
+    return
+}
+Set-Location $proj.Path
 
 # ---- git status ----
 Write-Host ""
 Write-Host "===================================" -ForegroundColor Green
-Write-Host ("   {0}   git status" -f $disp) -ForegroundColor Green
+Write-Host ("   {0}   git status" -f $proj.Disp) -ForegroundColor Green
 Write-Host "===================================" -ForegroundColor Green
 git fetch --quiet 2>$null
 $branch = (git rev-parse --abbrev-ref HEAD 2>$null)
@@ -77,63 +218,70 @@ if ([string]::IsNullOrWhiteSpace($dirty)) {
     $n = ($dirty -split "`r?`n" | Where-Object { $_ }).Count
     Write-Host ("   未コミット : {0} 件の変更あり" -f $n) -ForegroundColor Yellow
 }
-Write-Host ("   未Push     : {0} commit(s) ahead" -f $ahead) -ForegroundColor $(if ($ahead -gt 0) { 'Yellow' } else { 'Gray' })
-if ($behind -gt 0) {
-    Write-Host ("   同期状態   : {0} commit(s) 遅れ（pull推奨）" -f $behind) -ForegroundColor Yellow
+Write-Host ("   未Push     : {0} commit(s) ahead" -f $ahead) -ForegroundColor $(if ([int]$ahead -gt 0) { 'Yellow' } else { 'Gray' })
+if ([int]$behind -gt 0) {
+    Write-Host ("   同期状態   : リモートに {0} commit(s) の更新あり" -f $behind) -ForegroundColor Yellow
 } else {
     Write-Host "   同期状態   : 最新" -ForegroundColor Gray
 }
 
-# ---- git pull 確認（毎回確認・自動では引かない） ----
-Write-Host ""
-$ans = Read-Host "   最新を取得しますか？ [Y/N]"
-if ($ans -match '^[Yy]') {
-    git pull --ff-only
+# ---- pull は「リモートに更新がある時だけ」確認 ----
+if ([int]$behind -gt 0) {
+    Write-Host ""
+    $ans = Read-Host "   最新を取得しますか？ [Y/N]"
+    if ($ans -match '^[Yy]') {
+        git pull --ff-only
+    }
 }
 
-# ---- TODO / README 表示 ----
-$todoFile = $null
-foreach ($f in @('TODO.md', 'README.md')) {
-    $p = Join-Path $proj.FullName $f
-    if (Test-Path $p) { $todoFile = $p; break }
-}
-Write-Host ""
-Write-Host "===================================" -ForegroundColor Magenta
-Write-Host ("   {0}   今日やること" -f $disp) -ForegroundColor Magenta
-Write-Host "===================================" -ForegroundColor Magenta
-if ($todoFile) {
-    Get-Content -Path $todoFile -Encoding UTF8 | ForEach-Object { Write-Host "   $_" }
-} else {
-    Write-Host "   TODO.md / README.md は未設定です。" -ForegroundColor DarkGray
-    Write-Host "   （templates\TODO.md を各プロジェクトに置くと表示されます）" -ForegroundColor DarkGray
-}
-Write-Host ""
+# ---- README / TODO / CHANGELOG 表示 ----
+Show-Docs $proj.Path
 
 # ---- Claude Code 起動 ----
-Write-Host "   Claude Code を起動します..." -ForegroundColor Cyan
 Write-Host ""
+$launched = Start-Claude
 
-# claude.exe を動的に解決（Windows Store版・通常版 両対応）
-# ① Windows Store版: LocalAppData\Packages\Claude_*\LocalCache\Roaming\Claude\claude-code
-$claudeCodeDir = $null
-$storePackage = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Packages") -Directory -Filter "Claude_*" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($storePackage) {
-    $candidate = Join-Path $storePackage.FullName "LocalCache\Roaming\Claude\claude-code"
-    if (Test-Path $candidate) { $claudeCodeDir = $candidate }
+# =====================================================================
+#  終了後：変更があれば GitHub へ保存するか確認（GitHubプロジェクトのみ）
+# =====================================================================
+if ($launched) {
+    Set-Location $proj.Path
+    $after = git status --porcelain
+    if ([string]::IsNullOrWhiteSpace($after)) {
+        Write-Host ""
+        Write-Host "   変更なし。GitHubへの保存は不要です。" -ForegroundColor Gray
+    } else {
+        Write-Host ""
+        Write-Host "===================================" -ForegroundColor Yellow
+        Write-Host ("   {0}   未保存の変更があります" -f $proj.Disp) -ForegroundColor Yellow
+        Write-Host "===================================" -ForegroundColor Yellow
+        git status --short
+        Write-Host ""
+        $save = Read-Host "   GitHubへ保存しますか？ [Y/N]"
+        if ($save -match '^[Yy]') {
+            $msg = Read-Host "   コミットメッセージ"
+            if ([string]::IsNullOrWhiteSpace($msg)) {
+                Write-Host "   メッセージが空のため中止しました（コミットしていません）。" -ForegroundColor Red
+            } else {
+                git add -A
+                # 日本語メッセージを文字化けさせないため UTF-8(BOMなし) 一時ファイル経由でコミット
+                $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("devcommit_" + [guid]::NewGuid().ToString('N') + ".txt")
+                [System.IO.File]::WriteAllText($tmp, $msg, (New-Object System.Text.UTF8Encoding($false)))
+                git commit -F $tmp
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                if ($LASTEXITCODE -eq 0) {
+                    git push
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "   GitHubへ保存しました。" -ForegroundColor Green
+                    } else {
+                        Write-Host "   push に失敗しました。手動で確認してください。" -ForegroundColor Red
+                    }
+                } else {
+                    Write-Host "   commit に失敗しました。" -ForegroundColor Red
+                }
+            }
+        } else {
+            Write-Host "   保存しませんでした（変更はローカルに残っています）。" -ForegroundColor Gray
+        }
+    }
 }
-# ② 通常版: %APPDATA%\Claude\claude-code
-if (-not $claudeCodeDir) {
-    $candidate = Join-Path $env:APPDATA "Claude\claude-code"
-    if (Test-Path $candidate) { $claudeCodeDir = $candidate }
-}
-if (-not $claudeCodeDir) {
-    Write-Host "   claude.exe が見つかりません。Claude Desktop がインストールされているか確認してください。" -ForegroundColor Red
-    return
-}
-$latestVersion = Get-ChildItem $claudeCodeDir -Directory | Sort-Object Name | Select-Object -Last 1
-if (-not $latestVersion) {
-    Write-Host "   claude.exe のバージョンフォルダが見つかりません: $claudeCodeDir" -ForegroundColor Red
-    return
-}
-$claudeExe = Join-Path $latestVersion.FullName "claude.exe"
-& $claudeExe
