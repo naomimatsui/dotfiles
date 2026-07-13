@@ -253,6 +253,106 @@ function Start-PhoneSearch {
     Start-Process -FilePath $bat | Out-Null
 }
 
+# 文章の中から時刻（開始 or 終了）を1つ読み取る。無ければ $null。
+function Get-JpTime([string]$s) {
+    if (-not $s) { return $null }
+    $pm = ($s -match '午後|ごご|夕方|夜')
+    $am = ($s -match '午前|ごぜん|朝')
+    $h = $null; $m = 0
+    if     ($s -match '(\d{1,2})\s*[:：]\s*(\d{1,2})')   { $h=[int]$matches[1]; $m=[int]$matches[2] }
+    elseif ($s -match '(\d{1,2})\s*時\s*半')             { $h=[int]$matches[1]; $m=30 }
+    elseif ($s -match '(\d{1,2})\s*時\s*(\d{1,2})\s*分') { $h=[int]$matches[1]; $m=[int]$matches[2] }
+    elseif ($s -match '(\d{1,2})\s*時')                  { $h=[int]$matches[1]; $m=0 }
+    else { return $null }
+    if ($pm -and $h -lt 12) { $h += 12 }
+    if ($am -and $h -eq 12) { $h = 0 }
+    if ($h -ge 24) { $h = $h % 24 }
+    if ($m -ge 60) { $m = 0 }
+    return @{ h = $h; m = $m }
+}
+
+# 予定を文章で受け取り、日時を読み取って Google カレンダーを予定入りで開く（API不要）
+function Add-CalendarEvent {
+    Write-Host ""
+    Write-Host "   予定を文章で入力してください。"
+    Write-Host "   例）明日15時 徳重さんと打ち合わせ ／ 7/20 10:00-11:30 展示会準備 ／ 来週月曜 終日 出張" -ForegroundColor DarkGray
+    Write-Host "   ※ 音声で入れたいときは、入力欄で [Windowsキー]+[H] を押すと話して入力できます。" -ForegroundColor DarkGray
+    $text = Read-Host "   予定"
+    if ([string]::IsNullOrWhiteSpace($text)) { Write-Host "   入力がありませんでした。" -ForegroundColor Gray; return }
+
+    $now = Get-Date
+    $date = $now.Date
+    $t = $text
+
+    # 日付
+    if     ($t -match '今日|本日')        { $date = $now.Date }
+    elseif ($t -match '明後日|あさって')  { $date = $now.Date.AddDays(2) }
+    elseif ($t -match '明日|あした|あす') { $date = $now.Date.AddDays(1) }
+    elseif ($t -match '(来週)?\s*([月火水木金土日])曜') {
+        $wmap = @{ '日'=0; '月'=1; '火'=2; '水'=3; '木'=4; '金'=5; '土'=6 }
+        $diff = ($wmap[$matches[2]] - [int]$now.DayOfWeek + 7) % 7
+        if ($diff -eq 0) { $diff = 7 }
+        if ($matches[1]) {                               # 「来週」
+            $dnm = (1 - [int]$now.DayOfWeek + 7) % 7      # 次の月曜まで
+            if ($dnm -eq 0) { $dnm = 7 }
+            if ($diff -lt $dnm) { $diff += 7 }           # 今週内なら翌週へ送る
+        }
+        $date = $now.Date.AddDays($diff)
+    }
+    elseif ($t -match '(\d{1,2})\s*[/／月]\s*(\d{1,2})') {
+        try {
+            $cand = Get-Date -Year $now.Year -Month ([int]$matches[1]) -Day ([int]$matches[2]) -Hour 0 -Minute 0 -Second 0
+            if ($cand.Date -lt $now.Date) { $cand = $cand.AddYears(1) }
+            $date = $cand.Date
+        } catch { }
+    }
+
+    # 時刻（範囲対応：から/〜/-）
+    $parts = $t -split 'から|〜|～|~|—|ー|−|-', 2
+    $st = Get-JpTime $parts[0]
+    $et = if ($parts.Count -gt 1) { Get-JpTime $parts[1] } else { $null }
+    if ($et -and $st -and $et.h -lt $st.h -and $st.h -ge 12) { $et.h += 12 }
+
+    # タイトル（日時表現を除いた残り）
+    $title = $text
+    $title = $title -replace '今日|本日|明後日|あさって|明日|あした|あす', ''
+    $title = $title -replace '(来週)?\s*[月火水木金土日]曜日?', ''
+    $title = $title -replace '(\d{1,2})\s*[/／月]\s*(\d{1,2})\s*日?', ''
+    $title = $title -replace '午前|午後|終日', ''
+    $title = $title -replace '(\d{1,2})\s*[:：]\s*(\d{1,2})', ''
+    $title = $title -replace '(\d{1,2})\s*時(\s*半|\s*\d{1,2}\s*分?)?', ''
+    $title = $title -replace 'から|まで|〜|～|~|—|ー|−|-', ' '
+    $title = ($title -replace '\s+', ' ').Trim(([char[]]" 　、。・にのでをへと"))
+    if ([string]::IsNullOrWhiteSpace($title)) { $title = $text }
+
+    # URL 生成
+    $allday = (-not $st) -or ($text -match '終日')
+    if ($allday) {
+        $dates = "{0}/{1}" -f $date.ToString('yyyyMMdd'), $date.AddDays(1).ToString('yyyyMMdd')
+        $disp  = "{0}（終日）" -f $date.ToString('yyyy/MM/dd')
+    } else {
+        $start = $date.AddHours($st.h).AddMinutes($st.m)
+        $end   = if ($et) { $date.AddHours($et.h).AddMinutes($et.m) } else { $start.AddHours(1) }
+        if ($end -le $start) { $end = $start.AddHours(1) }
+        $dates = "{0}/{1}" -f $start.ToString('yyyyMMddTHHmmss'), $end.ToString('yyyyMMddTHHmmss')
+        $disp  = "{0} {1}-{2}" -f $start.ToString('yyyy/MM/dd'), $start.ToString('HH:mm'), $end.ToString('HH:mm')
+    }
+    $url = "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+           "&text=$([uri]::EscapeDataString($title))" +
+           "&dates=$dates&ctz=Asia/Tokyo" +
+           "&details=$([uri]::EscapeDataString('Naomi Launcher で追加'))"
+
+    Write-Host ""
+    Write-Host "   この内容で Google カレンダーを開きます（内容を確認して［保存］を押してください）：" -ForegroundColor Cyan
+    Write-Host ("      日時 : {0}" -f $disp) -ForegroundColor Green
+    Write-Host ("      予定 : {0}" -f $title) -ForegroundColor Green
+    Write-Host ""
+    $ok = Read-Host "   開いてよいですか？ [Y=はい / N=やめる]"
+    if ($ok -match '^[NnＮｎ]') { Write-Host "   やめました。" -ForegroundColor Gray; return }
+    Start-Process $url | Out-Null
+    Write-Host "   Google カレンダーを開きました。ブラウザで［保存］を押してください。" -ForegroundColor Gray
+}
+
 # =====================================================================
 #  メニュー・ループ
 # =====================================================================
@@ -271,6 +371,7 @@ while ($true) {
     Write-Host "  7) フォルダを開く"
     Write-Host "  8) 設定"
     Write-Host "  9) スマホ検索を開始"
+    Write-Host " 10) 予定を追加（カレンダー）"
     Write-Host "  0) 終了"
     Write-Host ""
     $sel = Read-Host "  番号を入力してください"
@@ -292,6 +393,7 @@ while ($true) {
             '7' { Open-FolderMenu }
             '8' { Set-Config }
             '9' { Start-PhoneSearch }
+            '10' { Add-CalendarEvent }
             default { Write-Host "   無効な番号です。" -ForegroundColor Red }
         }
     } catch {
