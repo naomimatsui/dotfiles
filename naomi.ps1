@@ -225,6 +225,34 @@ function Set-Config {
     }
 }
 
+function Start-PhoneSearch {
+    # スマホ検索サーバー（web_search.py）は %USERPROFILE%\NaomiAI にある想定（PC固有・非同期）
+    $srvDir = Join-Path $env:USERPROFILE 'NaomiAI'
+    $bat = Join-Path $srvDir 'スマホ検索サーバー.cmd'
+    if (-not (Test-Path $bat)) {
+        Write-Host ("   スマホ検索サーバーが見つかりません: {0}" -f $bat) -ForegroundColor Red
+        Write-Host "   （このPCにサーバー一式が無い可能性があります）" -ForegroundColor DarkGray
+        return
+    }
+    # 今のPCのIPアドレス（Wi-Fi優先）を調べてURLを案内
+    $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254)' }
+    $ip = ($ips | Where-Object { $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN' } | Select-Object -First 1 -ExpandProperty IPAddress)
+    if (-not $ip) { $ip = ($ips | Select-Object -First 1 -ExpandProperty IPAddress) }
+    Write-Host ""
+    Write-Host "   スマホ検索サーバーを起動します（別の黒い窓が開きます）。" -ForegroundColor Cyan
+    Write-Host "   ※ その窓は開けたままにしてください（閉じると止まります）。" -ForegroundColor DarkGray
+    if ($ip) {
+        Write-Host ""
+        Write-Host "   == iPhoneで開くURL（PCと同じWi-Fiで）==" -ForegroundColor Green
+        Write-Host ("       http://{0}:8000" -f $ip) -ForegroundColor Green
+        Write-Host "   合言葉は passcode.txt に設定した言葉です。" -ForegroundColor DarkGray
+    } else {
+        Write-Host "   （IPが取得できませんでした。サーバー窓に表示されるURLを見てください）" -ForegroundColor Yellow
+    }
+    Start-Process -FilePath $bat | Out-Null
+}
+
 # =====================================================================
 #  メニュー・ループ
 # =====================================================================
@@ -242,6 +270,7 @@ while ($true) {
     Write-Host "  6) 直美AIの索引を更新"
     Write-Host "  7) フォルダを開く"
     Write-Host "  8) 設定"
+    Write-Host "  9) スマホ検索を開始"
     Write-Host "  0) 終了"
     Write-Host ""
     $sel = Read-Host "  番号を入力してください"
@@ -262,6 +291,7 @@ while ($true) {
             '6' { Update-Index $f.naomi_ai }
             '7' { Open-FolderMenu }
             '8' { Set-Config }
+            '9' { Start-PhoneSearch }
             default { Write-Host "   無効な番号です。" -ForegroundColor Red }
         }
     } catch {
