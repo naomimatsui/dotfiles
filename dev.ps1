@@ -126,6 +126,7 @@ $layout = @(
     [ordered]@{ Kind = 'git';      Disp = '秒合わせ';        Folder = 'byou-awase' }
     [ordered]@{ Kind = 'git';      Disp = '予算カゴ';        Folder = 'budget-cago' }
     [ordered]@{ Kind = 'git';      Disp = 'MARINE CORE';     Folder = 'marinecore' }
+    [ordered]@{ Kind = 'naomiai';  Disp = '直美AI';          Path = 'G:\マイドライブ\直美AI' }
 )
 
 $menu = @()
@@ -159,6 +160,7 @@ for ($i = 0; $i -lt $menu.Count; $i++) {
     $tag = ''
     if     ($m.Kind -eq 'obsidian') { $tag = '  [Obsidian / git無]' }
     elseif ($m.Kind -eq 'nogit')    { $tag = '  [Obsidianプロジェクト / git無]' }
+    elseif ($m.Kind -eq 'naomiai')  { $tag = '  [直美AI / 差分更新・検索]' }
     if (-not $m.Exists) {
         if ($m.Kind -eq 'git') { $tag = '  [リポジトリ未作成]' } else { $tag = '  [見つかりません]' }
     }
@@ -226,6 +228,60 @@ if ($proj.Kind -eq 'nogit') {
     Write-Host ("   {0}：Obsidianプロジェクトとして開きます（GitHubリポ未作成 / git操作なし）" -f $proj.Disp) -ForegroundColor Green
     Write-Host "   ※ GitHub\ にリポができたら、次回から自動でgit(pull/push)対象になります。" -ForegroundColor DarkGray
     Write-Host ("   場所: {0}" -f $proj.Path) -ForegroundColor DarkGray
+    Show-Docs $proj.Path
+    Write-Host ""
+    [void](Start-Claude)
+    return
+}
+
+# =====================================================================
+#  分岐：直美AI（Google Drive内・ファイル検索/差分更新。git操作なし）
+# =====================================================================
+if ($proj.Kind -eq 'naomiai') {
+    if (-not (Test-Path $proj.Path)) {
+        Write-Host ""
+        Write-Host ("   直美AI フォルダが見つかりません: {0}" -f $proj.Path) -ForegroundColor Red
+        Write-Host "   Google Drive がマウントされているか確認してください。" -ForegroundColor Red
+        return
+    }
+    Set-Location $proj.Path
+    Write-Host ""
+    Write-Host "===================================" -ForegroundColor Green
+    Write-Host "   直美AI（ファイル検索）" -ForegroundColor Green
+    Write-Host "===================================" -ForegroundColor Green
+    Write-Host ("   場所: {0}" -f $proj.Path) -ForegroundColor DarkGray
+    Write-Host "   ※ プログラムは共有・DBは各PCの %LOCALAPPDATA%\NaomiAI に保存（git操作なし）" -ForegroundColor DarkGray
+
+    # 初回判定：このPCに索引（config.json / naomi_ai.db）がまだ無いか
+    $naomiHome = Join-Path $env:LOCALAPPDATA 'NaomiAI'
+    $cfg = Join-Path $naomiHome 'config.json'
+    $db  = Join-Path $naomiHome 'naomi_ai.db'
+    $firstTime = (-not (Test-Path $cfg)) -or (-not (Test-Path $db))
+
+    if ($firstTime) {
+        Write-Host ""
+        Write-Host "   このPCでは、まだ索引が作られていないようです（初回）。" -ForegroundColor Yellow
+        $ans = Read-Host "   今すぐ update_naomi_ai.bat を実行して初回設定＆索引を作りますか？ [Y/N]"
+        if ($ans -match '^[Yy]') {
+            $bat = Join-Path $proj.Path 'update_naomi_ai.bat'
+            if (Test-Path $bat) {
+                Write-Host "   update_naomi_ai.bat を実行します（別ウィンドウ・終了までお待ちください）..." -ForegroundColor Cyan
+                Start-Process -FilePath $bat -Wait
+            } else {
+                Write-Host "   update_naomi_ai.bat が見つかりません。" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "   索引作成はスキップしました（あとで update_naomi_ai.bat から実行できます）。" -ForegroundColor Gray
+        }
+    } else {
+        Write-Host ""
+        Write-Host "   索引あり。最新にしたいときは update_naomi_ai.bat（差分更新）をどうぞ。" -ForegroundColor Gray
+    }
+
+    # 直美AIプロジェクトを開く（フォルダをエクスプローラー表示＋Claude Code起動）
+    Write-Host ""
+    Write-Host "   直美AI フォルダを開きます..." -ForegroundColor Cyan
+    Start-Process explorer.exe $proj.Path
     Show-Docs $proj.Path
     Write-Host ""
     [void](Start-Claude)
