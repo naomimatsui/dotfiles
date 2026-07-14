@@ -1,5 +1,5 @@
 ﻿# =====================================================================
-#  dev.ps1  —  Claude Code プロジェクトランチャー  (dev 2.1)
+#  dev.ps1  —  Claude Code プロジェクトランチャー  (dev 2.2)
 #  使い方: PowerShell で  dev  と入力 / デスクトップの「Claude Code ランチャー」をダブルクリック
 #
 #  方針:
@@ -7,7 +7,9 @@
 #   - GitHubプロジェクトを選んだ日だけ、開始時pull・終了時push（どちらも確認付き）。
 #   - 固定パス(adoni等)は使わない。GitHubルート=$env:USERPROFILE\GitHub。
 #   - Claude起動は Store版 / 通常版 / PATH の3段フォールバック（家PC・会社PC対応）。
-#   - メニューはループする。0=ランチャー更新（dotfilesをgit pull） / q=終了。
+#   - 起動時に自動で dotfiles を git pull（更新確認）。dev.ps1 自身が更新された時は
+#     無理に再読み込みせず、安全に終了して再起動を促す。
+#   - メニューはループする。0=ランチャー更新（手動・同じ処理） / q=終了。
 # =====================================================================
 
 # 日本語表示のため入出力を UTF-8 に
@@ -107,55 +109,72 @@ function Open-VaultNote($vaultRoot, $rel) {
 }
 
 # =====================================================================
-#  ★ ランチャー更新（0番）：dotfiles を git pull
-#     - ローカル変更は勝手に削除しない（--ff-only）。
-#     - 失敗時は日本語で原因と対処を表示する。
+#  ★ ランチャー更新：dotfiles を git pull（起動時の自動更新・0番の手動更新で共用）
+#     戻り値: 'uptodate' | 'updated' | 'updated-self' | 'failed'
+#     - ローカル変更に対して restore / reset / 削除は一切しない（--ff-only）。
+#     - 失敗してもランチャーは終了せず、日本語で原因を表示して続行する。
+#     - dev.ps1 自身が更新された場合は 'updated-self' を返し、呼び出し側が安全終了する。
 # =====================================================================
-function Update-Launcher {
+function Invoke-LauncherUpdate {
     Write-Host ""
-    Write-Host "===================================" -ForegroundColor Cyan
-    Write-Host "   ランチャー更新（dotfiles を git pull）" -ForegroundColor Cyan
-    Write-Host "===================================" -ForegroundColor Cyan
+    Write-Host "   ランチャーの更新を確認しています..." -ForegroundColor Cyan
 
     if (-not (Test-Path (Join-Path $DotfilesPath '.git'))) {
         Write-Host ("   dotfiles リポジトリが見つかりません: {0}" -f $DotfilesPath) -ForegroundColor Red
-        Write-Host "   先に git clone してください。" -ForegroundColor Red
-        return
+        Write-Host "   更新はスキップして、このままメニューへ進みます。" -ForegroundColor Yellow
+        return 'failed'
     }
 
     Push-Location $DotfilesPath
     try {
-        # ローカル変更の有無を先に確認（勝手に消さない）
-        $dirty = git status --porcelain
-        if (-not [string]::IsNullOrWhiteSpace($dirty)) {
-            Write-Host ""
-            Write-Host "   このPCのローカルに未保存の変更があります（下記）。勝手に削除しません。" -ForegroundColor Yellow
-            git status --short
-        }
+        # ローカル変更の有無を確認（勝手に restore / reset / 削除はしない）
+        $dirty  = git status --porcelain
+        $before = (git rev-parse HEAD 2>$null)
 
-        Write-Host ""
-        Write-Host "   最新を取得します..." -ForegroundColor Cyan
-        git pull --ff-only
+        # git の出力は画面に見せるが、関数の戻り値には混ぜない（Out-Host で分離）
+        git pull --ff-only | Out-Host
         $code = $LASTEXITCODE
 
-        if ($code -eq 0) {
+        if ($code -ne 0) {
             Write-Host ""
-            Write-Host "   更新しました。" -ForegroundColor Green
-            Write-Host "   ※ 変更を反映するには、いったんこのランチャーを閉じて開き直してください。" -ForegroundColor DarkGray
-        } else {
-            Write-Host ""
-            Write-Host "   更新に失敗しました。" -ForegroundColor Red
+            Write-Host "   更新の取得に失敗しました（ランチャーは終了せず続行します）。" -ForegroundColor Red
             if (-not [string]::IsNullOrWhiteSpace($dirty)) {
                 Write-Host "   原因：このPCのローカルに未保存の変更があるため、更新できませんでした。" -ForegroundColor Yellow
                 Write-Host "   対処：変更を保存（コミット）するか、元に戻してから、もう一度お試しください。" -ForegroundColor Yellow
-                Write-Host "        （このランチャーは、あなたの変更を勝手に消しません）" -ForegroundColor DarkGray
+                Write-Host "        （restore / reset / 削除など、あなたの変更を勝手に消すことはしません）" -ForegroundColor DarkGray
             } else {
                 Write-Host "   ネットワークや GitHub の状態を確認して、もう一度お試しください。" -ForegroundColor Yellow
             }
+            return 'failed'
         }
+
+        $after = (git rev-parse HEAD 2>$null)
+        if ($before -eq $after) {
+            Write-Host "   最新の状態です。" -ForegroundColor Green
+            return 'uptodate'
+        }
+
+        # 新しいコミットが来た → dev.ps1 自身が更新されたか判定
+        $changed = git diff --name-only $before $after 2>$null
+        $selfUpdated = $false
+        foreach ($line in ($changed -split "`r?`n")) {
+            if ($line.Trim() -eq 'dev.ps1') { $selfUpdated = $true; break }
+        }
+
+        Write-Host "   ランチャーを更新しました。" -ForegroundColor Green
+        if ($selfUpdated) { return 'updated-self' } else { return 'updated' }
     } finally {
         Pop-Location
     }
+}
+
+# --- ランチャー自身が更新された時の安全終了メッセージ（無理に再読み込みしない） ---
+function Show-RestartNotice {
+    Write-Host ""
+    Write-Host "===================================" -ForegroundColor Yellow
+    Write-Host "   ランチャーが更新されたため、いったん終了して再起動してください。" -ForegroundColor Yellow
+    Write-Host "===================================" -ForegroundColor Yellow
+    Write-Host "   （安全のため実行中のランチャーはここで終了します。もう一度起動すると最新版で動きます）" -ForegroundColor DarkGray
 }
 
 # =====================================================================
@@ -427,8 +446,20 @@ function Invoke-Project($proj) {
 }
 
 # =====================================================================
+#  起動時：自動でランチャー更新をチェック（家PC・会社PC共通）
+#    - dotfiles へ移動して git pull（--ff-only）。
+#    - dev.ps1 自身が更新された時は、無理に再読み込みせず安全に終了して再起動を促す。
+# =====================================================================
+Set-Location $DotfilesPath
+$startupUpdate = Invoke-LauncherUpdate
+if ($startupUpdate -eq 'updated-self') {
+    Show-RestartNotice
+    return
+}
+
+# =====================================================================
 #  メインループ：メニュー表示 → 選択 → 実行 → メニューへ戻る
-#    0 = ランチャー更新 / q（または空Enter）= 終了
+#    0 = ランチャー更新（手動・起動時と同じ処理） / q（または空Enter）= 終了
 # =====================================================================
 while ($true) {
     $menu = Build-Menu
@@ -462,9 +493,13 @@ while ($true) {
         break
     }
 
-    # ---- 0：ランチャー更新 → メニューへ戻る ----
+    # ---- 0：手動でランチャー更新 → メニューへ戻る（自身が更新されたら安全終了）----
     if ($sel -eq '0') {
-        Update-Launcher
+        $manualUpdate = Invoke-LauncherUpdate
+        if ($manualUpdate -eq 'updated-self') {
+            Show-RestartNotice
+            break
+        }
         continue
     }
 
