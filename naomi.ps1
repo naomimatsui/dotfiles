@@ -73,8 +73,19 @@ function Get-Folders {
 
 # ---- claude.exe 解決（PATH → Store版 → 通常版）。dev.ps1 とは独立の複製。 ----
 function Resolve-ClaudeExe {
+    # npm の .ps1 / .cmd シムは $input を claude.exe に流し込み、--print モード誤起動の原因になる。
+    # シムを避けて実体の claude.exe を優先する（dev.ps1 と同じ対処）。
     $cmd = Get-Command claude -ErrorAction SilentlyContinue
-    if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) { return $cmd.Source }
+    if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) {
+        $src = $cmd.Source
+        if ($src -match '\.(ps1|cmd)$') {
+            $shimDir = Split-Path $src -Parent
+            $realExe = Join-Path $shimDir 'node_modules\@anthropic-ai\claude-code\bin\claude.exe'
+            if (Test-Path $realExe) { return $realExe }
+        } else {
+            return $src
+        }
+    }
     $storePackage = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages') -Directory -Filter 'Claude_*' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($storePackage) {
         $dir = Join-Path $storePackage.FullName 'LocalCache\Roaming\Claude\claude-code'

@@ -40,8 +40,21 @@ function Get-Disp($name) {
 # --- claude.exe を動的に解決（PATH → Store版 → 通常版） ---
 function Resolve-ClaudeExe {
     # ① PATH上の claude（npm版・シム等）
+    #    npm の .ps1 / .cmd シムは、パイプ入力があると $input を claude.exe に流し込み、
+    #    claude が --print モードに入って「プロンプトが無い」エラーになる（対話起動できない）。
+    #    そこでシムを避け、実体の claude.exe（node_modules\...\bin\claude.exe）を優先する。
     $cmd = Get-Command claude -ErrorAction SilentlyContinue
-    if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) { return $cmd.Source }
+    if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) {
+        $src = $cmd.Source
+        if ($src -match '\.(ps1|cmd)$') {
+            $shimDir = Split-Path $src -Parent
+            $realExe = Join-Path $shimDir 'node_modules\@anthropic-ai\claude-code\bin\claude.exe'
+            if (Test-Path $realExe) { return $realExe }
+            # 実体が見つからなければ、下の Store版/通常版フォールバックへ進む
+        } else {
+            return $src   # 既に .exe など実体
+        }
+    }
 
     # ② Windows Store版: LocalAppData\Packages\Claude_*\LocalCache\Roaming\Claude\claude-code
     $storePackage = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Packages') -Directory -Filter 'Claude_*' -ErrorAction SilentlyContinue | Select-Object -First 1
