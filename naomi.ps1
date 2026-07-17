@@ -479,10 +479,49 @@ function Show-Dashboard {
     Write-Host "    メール未返信   : 未連携" -ForegroundColor DarkGray
 }
 
+# ---- コード(GitHub)のPC間同期：開始時pull／終了時push ----
+#  Vaultは Google Drive で自動同期。コード(report.html等)は git でしか同期しないため、
+#  起動時に pull（会社↔家の最新を取り込み）、終了時に push（今日の分をアップ）する。
+function Sync-CodeRepos {
+    param([switch]$Push, [switch]$Quiet)
+    $ghRoot = Join-Path $env:USERPROFILE 'GitHub'
+    if (-not (Test-Path $ghRoot)) { if (-not $Quiet) { Write-Host "   GitHubフォルダが見つかりません（同期スキップ）。" -ForegroundColor DarkGray }; return }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { if (-not $Quiet) { Write-Host "   gitが見つかりません（同期スキップ）。" -ForegroundColor DarkGray }; return }
+    $repos = Get-ChildItem $ghRoot -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.git') }
+    if (-not $repos) { if (-not $Quiet) { Write-Host "   同期対象のリポジトリがありません。" -ForegroundColor DarkGray }; return }
+    foreach ($r in $repos) {
+        Push-Location $r.FullName
+        try {
+            if (-not (& git remote 2>$null)) { continue }
+            $line = ""
+            $pullOut = & git pull --ff-only 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                if ("$pullOut" -match 'Already up to date|最新') { $line = "最新" } else { $line = "取り込み✓" }
+            } else {
+                $line = "pull保留（手動確認を／元の作業は無事）"
+            }
+            if ($Push) {
+                $ahead = & git rev-list --count '@{u}..HEAD' 2>$null
+                if ($LASTEXITCODE -eq 0 -and $ahead -and ([int]$ahead) -gt 0) {
+                    & git push 2>$null | Out-Null
+                    if ($LASTEXITCODE -eq 0) { $line += " ／ アップ✓（$ahead件）" } else { $line += " ／ アップ失敗" }
+                }
+            }
+            if ($line -match '保留|失敗') { $col = 'Yellow' } else { $col = 'Gray' }
+            if (-not $Quiet) { Write-Host ("     {0,-16}{1}" -f $r.Name, $line) -ForegroundColor $col }
+        } catch {
+            if (-not $Quiet) { Write-Host ("     {0} 同期エラー: {1}" -f $r.Name, $_.Exception.Message) -ForegroundColor Red }
+        } finally { Pop-Location }
+    }
+}
+
 # =====================================================================
 #  メニュー・ループ
 # =====================================================================
 Show-Dashboard
+Write-Host ""
+Write-Host "  コードをPC間で最新に同期中（pull）..." -ForegroundColor DarkCyan
+Sync-CodeRepos
 
 while ($true) {
     Write-Host ""
@@ -499,11 +538,17 @@ while ($true) {
     Write-Host "  7) 設定"
     Write-Host "  8) 予定を追加（カレンダー）"
     Write-Host "  9) スマホ検索を開始"
+    Write-Host "  S) コードを同期（PC間・最新化＋アップ）" -ForegroundColor DarkCyan
     Write-Host "  0) 終了"
     Write-Host ""
     $sel = Read-Host "  番号を入力してください"
 
-    if ($sel -eq '0' -or $sel -eq 'q') { Write-Host "   終了します。" -ForegroundColor Gray; break }
+    if ($sel -eq '0' -or $sel -eq 'q') {
+        Write-Host ""
+        Write-Host "   終了前に、今日の変更をアップロード（push）します..." -ForegroundColor Cyan
+        Sync-CodeRepos -Push
+        Write-Host "   終了します。おつかれさまでした。" -ForegroundColor Gray; break
+    }
 
     try {
         $f = Get-Folders
@@ -520,6 +565,7 @@ while ($true) {
             '7' { Set-Config }
             '8' { Add-CalendarEvent }
             '9' { Start-PhoneSearch }
+            'S' { Write-Host "   コードを同期します（pull＋push）..." -ForegroundColor Cyan; Sync-CodeRepos -Push }
             default { Write-Host "   無効な番号です。" -ForegroundColor Red }
         }
     } catch {
