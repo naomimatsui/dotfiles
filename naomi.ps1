@@ -55,11 +55,12 @@ $script:Overrides = Load-Overrides
 
 function Get-Folders {
     $g = $script:GDrive
+    $vault = if ($g) { Join-Path $g 'Obsidian Vault' } else { '' }
     $f = @{
         naomi_ai = if ($g) { Join-Path $g '直美AI' }                else { '' }
         threads  = if ($g) { Join-Path $g 'THREADSおみちゃんねる' } else { '' }
-        vault    = if ($g) { Join-Path $g 'Obsidian Vault' }        else { '' }
-        note     = ''
+        vault    = $vault
+        note     = if ($vault) { Join-Path $vault 'Note' } else { '' }   # 既定＝Vault内のNote（Obsidianの中）
     }
     foreach ($k in @('naomi_ai', 'threads', 'vault', 'note')) {
         if ($script:Overrides.ContainsKey($k) -and $script:Overrides[$k]) { $f[$k] = $script:Overrides[$k] }
