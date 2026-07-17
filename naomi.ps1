@@ -261,7 +261,7 @@ function Update-Index($naomiPath) {
             Write-Host "   ・消失ファイルは削除せず status=missing に。再発見で active に戻ります。"
             Write-Host "   ・更新前に naomi_ai.db をバックアップ（7世代）。二重更新防止のロックあり。"
             Write-Host "   ・元ファイルは 変更/移動/削除 しません。オンライン専用は中身をDLしません。"
-            $logdir = Join-Path $env:LOCALAPPDATA 'NaomiAI\logs'
+            $logdir = Join-Path $env:USERPROFILE 'NaomiAI\logs'
             if (Test-Path $logdir) {
                 $lg = Get-ChildItem $logdir -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
                 if ($lg) { Write-Host ("   ・前回ログ: {0}" -f $lg.FullName) -ForegroundColor DarkGray }
@@ -384,7 +384,7 @@ function Add-CalendarEvent {
 # ---- 7) 設定 ----
 function Set-Config {
     $f = Get-Folders
-    $dbPath   = Join-Path $env:LOCALAPPDATA 'NaomiAI\naomi_ai.db'
+    $dbPath   = Join-Path $env:USERPROFILE 'NaomiAI\naomi_ai.db'
     $updPath  = Join-Path $f.naomi_ai 'update_naomi_ai.bat'
     $srchPath = Join-Path $f.naomi_ai 'search_naomi_ai.bat'
     $editable = @(
@@ -417,7 +417,7 @@ function Set-Config {
 # ---- 前回更新後の変更（最新ログから軽く取得。無ければ $null） ----
 function Get-LastUpdateChanges {
     try {
-        $logdir = Join-Path $env:LOCALAPPDATA 'NaomiAI\logs'
+        $logdir = Join-Path $env:USERPROFILE 'NaomiAI\logs'
         if (-not (Test-Path $logdir)) { return $null }
         $latest = Get-ChildItem $logdir -Filter '*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if (-not $latest) { return $null }

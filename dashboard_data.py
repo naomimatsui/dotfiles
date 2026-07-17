@@ -9,7 +9,8 @@ import sqlite3
 import datetime
 
 def main():
-    db = os.path.join(os.environ.get("LOCALAPPDATA", ""), "NaomiAI", "naomi_ai.db")
+    home = os.environ.get("NAOMI_AI_HOME") or os.path.join(os.environ.get("USERPROFILE", ""), "NaomiAI")
+    db = os.path.join(home, "naomi_ai.db")
     if not db or not os.path.exists(db):
         print("IMG=-1")
         print("KOBE=-1|")
