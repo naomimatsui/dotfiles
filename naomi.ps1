@@ -283,16 +283,31 @@ function Start-PhoneSearch {
         Write-Host "   （このPCにサーバー一式が無い可能性があります）" -ForegroundColor DarkGray
         return
     }
-    $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254)' }
+    # LAN IP（Tailscaleの100.x帯は除外して、同じWi-Fi用のIPを選ぶ）
+    $ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+           Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.)' }
     $ip = ($ips | Where-Object { $_.InterfaceAlias -match 'Wi-Fi|Wireless|WLAN' } | Select-Object -First 1 -ExpandProperty IPAddress)
     if (-not $ip) { $ip = ($ips | Select-Object -First 1 -ExpandProperty IPAddress) }
+    # Tailscale IP（外出先用）
+    $tsIp = $null
+    $tsExe = 'C:\Program Files\Tailscale\tailscale.exe'
+    if (-not (Test-Path $tsExe)) { $tsExe = (Get-Command tailscale -ErrorAction SilentlyContinue).Source }
+    if ($tsExe) { try { $tsIp = (& $tsExe ip -4 2>$null | Select-Object -First 1).Trim() } catch { } }
     Write-Host ""
     Write-Host "   スマホ検索サーバーを起動します（別の黒い窓が開きます）。" -ForegroundColor Cyan
     Write-Host "   ※ その窓は開けたままにしてください（閉じると止まります）。" -ForegroundColor DarkGray
     if ($ip) {
         Write-Host ""
-        Write-Host "   == iPhoneで開くURL（PCと同じWi-Fiで）==" -ForegroundColor Green
+        Write-Host "   == iPhoneで開くURL（家/会社の同じWi-Fi）==" -ForegroundColor Green
         Write-Host ("       http://{0}:8000" -f $ip) -ForegroundColor Green
+    }
+    if ($tsIp) {
+        Write-Host ""
+        Write-Host "   == 外出先で開くURL（Tailscale・どこでもOK）==" -ForegroundColor Magenta
+        Write-Host ("       http://{0}:8000" -f $tsIp) -ForegroundColor Magenta
+        Write-Host "   ※ iPhone側もTailscaleをオンにしておくこと" -ForegroundColor DarkGray
+    }
+    if ($ip -or $tsIp) {
         Write-Host "   合言葉は passcode.txt に設定した言葉です。" -ForegroundColor DarkGray
     } else {
         Write-Host "   （IPが取得できませんでした。サーバー窓に表示されるURLを見てください）" -ForegroundColor Yellow
