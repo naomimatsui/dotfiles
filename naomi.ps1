@@ -55,7 +55,9 @@ $script:Overrides = Load-Overrides
 
 function Get-Folders {
     $g = $script:GDrive
-    $vault = if ($g) { Join-Path $g 'Obsidian Vault' } else { '' }
+    # VaultはObsidian Syncのローカル(%USERPROFILE%\ObsidianVault)を優先。無ければ旧G:\(バックアップ)。
+    $localVault = Join-Path $env:USERPROFILE 'ObsidianVault'
+    $vault = if (Test-Path $localVault) { $localVault } elseif ($g) { Join-Path $g 'Obsidian Vault' } else { '' }
     $f = @{
         naomi_ai = if ($g) { Join-Path $g '直美AI' }                else { '' }
         threads  = if ($g) { Join-Path $g 'THREADSおみちゃんねる' } else { '' }
