@@ -512,7 +512,10 @@ function Sync-CodeRepos {
     $ghRoot = Join-Path $env:USERPROFILE 'GitHub'
     if (-not (Test-Path $ghRoot)) { if (-not $Quiet) { Write-Host "   GitHubフォルダが見つかりません（同期スキップ）。" -ForegroundColor DarkGray }; return }
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) { if (-not $Quiet) { Write-Host "   gitが見つかりません（同期スキップ）。" -ForegroundColor DarkGray }; return }
-    $repos = Get-ChildItem $ghRoot -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.git') }
+    $repos = @(Get-ChildItem $ghRoot -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.git') })
+    # NaomiAI は GitHub\ の外（データと同居のため）だが git 管理下。同期対象に含める。
+    $naomiRepo = Join-Path $env:USERPROFILE 'NaomiAI'
+    if (Test-Path (Join-Path $naomiRepo '.git')) { $repos += (Get-Item $naomiRepo) }
     if (-not $repos) { if (-not $Quiet) { Write-Host "   同期対象のリポジトリがありません。" -ForegroundColor DarkGray }; return }
     foreach ($r in $repos) {
         Push-Location $r.FullName
