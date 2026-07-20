@@ -58,9 +58,17 @@ function Get-Folders {
     # VaultはObsidian Syncのローカル(%USERPROFILE%\ObsidianVault)を優先。無ければ旧G:\(バックアップ)。
     $localVault = Join-Path $env:USERPROFILE 'ObsidianVault'
     $vault = if (Test-Path $localVault) { $localVault } elseif ($g) { Join-Path $g 'Obsidian Vault' } else { '' }
+    # ThreadsもVault内(C:)を優先。無ければ旧G:\(バックアップ)。
+    # ※G:\マイドライブ\THREADSおみちゃんねる は7/15で更新停止した抜け殻（5件）。本体はVault\Threads(326件)。
+    $localThreads = if ($vault) { Join-Path $vault 'Threads' } else { '' }
+    # 直美AIもC:優先（2026-07-20 スクリプト一式をG:からC:\Users\adoni\NaomiAIへ移設済み）。
+    # .bat は %~dp0 基準＋NAOMI_AI_HOME=%USERPROFILE%\NaomiAI なので、C:に置いてそのまま動く。
+    $localNaomiAI = Join-Path $env:USERPROFILE 'NaomiAI'
     $f = @{
-        naomi_ai = if ($g) { Join-Path $g '直美AI' }                else { '' }
-        threads  = if ($g) { Join-Path $g 'THREADSおみちゃんねる' } else { '' }
+        naomi_ai = if (Test-Path (Join-Path $localNaomiAI 'update_naomi_ai.bat')) { $localNaomiAI }
+                   elseif ($g) { Join-Path $g '直美AI' } else { '' }
+        threads  = if ($localThreads -and (Test-Path $localThreads)) { $localThreads }
+                   elseif ($g) { Join-Path $g 'THREADSおみちゃんねる' } else { '' }
         vault    = $vault
         note     = if ($vault) { Join-Path $vault 'Note' } else { '' }   # 既定＝Vault内のNote（Obsidianの中）
     }
