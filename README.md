@@ -5,7 +5,7 @@
 ## コンセプト
 | 用途 | 保存場所 | 同期 | Git |
 |---|---|---|---|
-| アイデア・営業資料・メモ（Obsidian） | `G:\マイドライブ\Obsidian Vault` | Google Drive | ❌ しない |
+| アイデア・営業資料・メモ（Obsidian） | `%USERPROFILE%\ObsidianVault` | Obsidian Sync | ❌ しない |
 | コード（アプリ開発） | `C:\Users\<user>\GitHub` | GitHub | ✅ する |
 
 > **絶対ルール:** Google Drive 内では Git 管理しない。コードは必ず `GitHub` フォルダで管理する。
@@ -38,7 +38,7 @@ dev
 
 ### Obsidian Vault を選んだ場合（git操作なし）
 ```
- → G:\マイドライブ\Obsidian Vault へ移動
+ → %USERPROFILE%\ObsidianVault へ移動
  → 重要ファイル確認（🏠 HOME.md / PROJECTS.md / TODAY.md / _system\INDEX.md を ✓/✗ 表示）
  → Claude Code 起動
  → 終了後も git 操作なし（Google Drive 同期に任せる）
@@ -136,7 +136,7 @@ Get-ExecutionPolicy -List   # CurrentUser が RemoteSigned ならOK
 ## 保存場所のルール（重要）
 | 用途 | 場所 | 同期 | Git |
 |---|---|---|---|
-| Obsidian（アイデア・営業資料・メモ） | `G:\マイドライブ\Obsidian Vault` | Google Drive | ❌ しない |
+| Obsidian（アイデア・営業資料・メモ） | `%USERPROFILE%\ObsidianVault` | Obsidian Sync | ❌ しない |
 | コード（アプリ開発） | `C:\Users\<user>\GitHub` | GitHub | ✅ する |
 
 - **Google Drive は Obsidian 専用。GitHub はコード専用。**

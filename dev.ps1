@@ -1,9 +1,13 @@
 ﻿# =====================================================================
 #  dev.ps1  —  Claude Code プロジェクトランチャー  (dev 2.2)
-#  使い方: PowerShell で  dev  と入力 / デスクトップの「Claude Code ランチャー」をダブルクリック
+#
+#  ⚠️ 2026-07-22：これは旧ランチャーです。通常は使いません。
+#     日常の起動口は Vaultルートの claude-start.cmd
+#     （デスクトップ「★Claude Code（会社）」）と Naomi Launcher(naomi.ps1) の2本。
+#     デスクトップの旧ショートカットは「_旧_使わない_Claude Codeランチャー」に改名済み。
 #
 #  方針:
-#   - Obsidian Vault は「普段使いの中心」。git操作は一切しない（Google Drive同期）。
+#   - Obsidian Vault は「普段使いの中心」。git操作は一切しない（Obsidian Syncが同期する）。
 #   - GitHubプロジェクトを選んだ日だけ、開始時pull・終了時push（どちらも確認付き）。
 #   - 固定パス(adoni等)は使わない。GitHubルート=$env:USERPROFILE\GitHub。
 #   - Claude起動は Store版 / 通常版 / PATH の3段フォールバック（家PC・会社PC対応）。
@@ -17,9 +21,19 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $Root      = Join-Path $env:USERPROFILE 'GitHub'
-$VaultPath = 'G:\マイドライブ\Obsidian Vault'
-$HomeAiPath = Join-Path $VaultPath 'App Ideas\HomeAI Project'
+
+# Vault は Obsidian Sync のローカル(%USERPROFILE%\ObsidianVault)が正。
+# G:\マイドライブ\Obsidian Vault は 2026-07-18 に凍結したバックアップ＝開いてはいけない。
+# （naomi.ps1 の Get-Folders と同じ方針。2026-07-22 修正）
+$localVault = Join-Path $env:USERPROFILE 'ObsidianVault'
+$VaultPath  = if (Test-Path $localVault) { $localVault } else { '' }
+
+$HomeAiPath = if ($VaultPath) { Join-Path $VaultPath 'App Ideas\HomeAI Project' } else { '' }
 $DotfilesPath = Join-Path $Root 'dotfiles'
+
+# 直美AI も C: が正（2026-07-20 に G: から %USERPROFILE%\NaomiAI へ移設済み）
+$localNaomiAI = Join-Path $env:USERPROFILE 'NaomiAI'
+$NaomiAiPath  = if (Test-Path $localNaomiAI) { $localNaomiAI } else { '' }
 
 # HomeAI がGitHubリポになったか判定する候補
 $HomeAiRepoCandidates = @('homeai', 'home-ai', 'HomeAI')
@@ -215,7 +229,7 @@ function Build-Menu {
         [ordered]@{ Kind = 'git';      Disp = '秒合わせ';        Folder = 'byou-awase' }
         [ordered]@{ Kind = 'git';      Disp = '予算カゴ';        Folder = 'budget-cago' }
         [ordered]@{ Kind = 'git';      Disp = 'MARINE CORE';     Folder = 'marinecore' }
-        [ordered]@{ Kind = 'naomiai';  Disp = '直美AI';          Path = 'G:\マイドライブ\直美AI' }
+        [ordered]@{ Kind = 'naomiai';  Disp = '直美AI';          Path = $NaomiAiPath }
     )
 
     $menu = @()
